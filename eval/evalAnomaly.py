@@ -1,16 +1,13 @@
 import os
-import sys
 import glob
 import torch
 import random
-from PIL import Image
 import numpy as np
-from erfnet import ERFNet
-from argparse import ArgumentParser
 
+from PIL import Image
+from erfnet import ERFNet
 from ood_metrics import fpr_at_95_tpr
 from sklearn.metrics import average_precision_score
-
 from torchvision.transforms import Compose, Resize, ToTensor
 from pathlib import Path
 
@@ -24,47 +21,49 @@ torch.manual_seed(seed)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = True
 
-# Transformations for input images (resizing + tensor conversion) and for ground truth masks (resizing without interpolation).
+# Transformations for input images (resizing + tensor conversion) and for ground truth masks (resizing without interpolation)
 input_transform = Compose([Resize((512, 1024), Image.BILINEAR),ToTensor()])
 target_transform = Compose([Resize((512, 1024), Image.NEAREST)])
 
-def folder_up(path, n):
-    path = path
-    for folder_index in range(n):
-        path = os.path.dirname(path)
-    return path
+# Defining the number of classes of the trained model
+NUM_CLASSES = 20
+
+# Get all the directories in ValidationDatasets
+root_directory = Path(__file__).resolve().parents[1]
+datasets_directory = "ValidationDatasets"
+images_directory = "images"
+labels_directory = "labels_masks"
+dataset_directory = os.path.join(root_directory, datasets_directory)
+
+# The list of all the datasets in dataset_directory
+directories = [entry.name for entry in os.scandir(dataset_directory) if entry.is_dir()]
+# training_datasets = [os.path.join(dataset_directory, directory) for directory in directories]
+training_datasets = [os.path.join(dataset_directory, "fs_static")]
 
 def calculate_msp(logits):
+    """
+    Calculates Maximum Softmax Probability, using the logits. Exact definition as the one given by the teacher.
+    """
     return 1.0 - np.max(logits, axis=0)
 
 def calculate_entropy(logits):
+    """
+    Calculates the entropy from the logits. Definition established from the one defined in the SegmentMeIfYouCan project.
+    """
     softmax_output = np.exp(logits) / np.sum(np.exp(logits), axis=0, keepdims=True)
-    log_probs = np.log(softmax_output + 1e-10)
-    return -np.sum(softmax_output * log_probs, axis=0)
+    log_probs = np.log(softmax_output)# + 1e-10)
+    return np.sum(-softmax_output * log_probs, axis=0)
 
 def calculate_max_logit(logits):
+    """
+    Calculates the maximum logit. Definition from Scaling OoD Detection for Real-World Settings
+    """
     return -np.max(logits, axis=0)
 
-def calculate_miou(predictions, targets, num_classes):
-    ious = []
-    for cls in range(num_classes):
-        pred_cls = (predictions == cls)
-        target_cls = (targets == cls)
-
-        intersection = np.logical_and(pred_cls, target_cls).sum()
-        union = np.logical_or(pred_cls, target_cls).sum()
-
-        if union == 0:
-            iou = 1.0  # To avoid division by zero
-        else:
-            iou = intersection / union
-
-        ious.append(iou)
-
-    miou = np.mean(ious)
-    return miou
-    
 def calculate_metrics(scores, ood_mask, ind_mask):
+    """
+    Calculates AUPRC and FPR@TPR95, using the initial implemented method.
+    """
     ood_out = scores[ood_mask]
     ind_out = scores[ind_mask]
 
@@ -97,7 +96,6 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
     MainPath = Path(__file__).resolve().parents[1] / "trained_models"
     loadDir = str(MainPath)
     loadWeights = "/erfnet_pretrained.pth"
-    MIOU=[]
 
     if not os.path.exists(r'.\eval\results.txt'):
         open(r'.\eval\results.txt', 'w').close()
@@ -117,19 +115,18 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
     for dataset_dir in training_datasets:
 
         dataset_name = os.path.basename(dataset_dir)
-        images_pattern = os.path.join(dataset_dir, images_directory, "*.*")
-        images_pattern = images_pattern.replace('/', '\\')
+        images_pattern = os.path.join(dataset_dir, images_directory, "*.*").replace('/', '\\')
 
         msp_scores = []
         entropy_scores = []
         maxlogit_scores = []
         ood_gts_list = []
-        miou_list = []
         
         # list of all the images in the directory
         image_paths = glob.glob(os.path.abspath(images_pattern))
         
         # each "path" is the full path to an image of the data set
+        # so loop over the images of the dataset
         for path in image_paths:
             
             # Obtain image extension
@@ -147,10 +144,10 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
                 print(f"The {pathGT} label doesn't exist.")
                 continue
 
-            images = input_transform((Image.open(path).convert('RGB'))).unsqueeze(0).float().cuda()
-
+            image = input_transform((Image.open(path).convert('RGB'))).unsqueeze(0).float().cuda()
+            
             with torch.no_grad():
-                result = model(images)
+                result = model(image)
 
             # Obtain predicted class labels
             predictions = torch.argmax(result, dim=1).squeeze().cpu().numpy()
@@ -158,18 +155,12 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
             mask = target_transform(mask)
             ood_gts = np.array(mask)
 
-            # calculate mIoU
-            miou = calculate_miou(predictions, ood_gts, NUM_CLASSES)
             logits = result.squeeze(0).data.cpu().numpy()
 
             # calculate anomaly scores
             msp_result = calculate_msp(logits)
             entropy_result = calculate_entropy(logits)
             maxlogit_result = calculate_max_logit(logits)
-
-            mask = Image.open(pathGT)
-            mask = target_transform(mask)
-            ood_gts = np.array(mask)
 
             if "RoadAnomaly" in dataset_name:
                 ood_gts = np.where((ood_gts==2), 1, ood_gts)
@@ -188,7 +179,6 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
                 msp_scores.append(msp_result)
                 entropy_scores.append(entropy_result)
                 maxlogit_scores.append(maxlogit_result)
-                miou_list.append(miou)  # Add mIoU to a list
 
             torch.cuda.empty_cache()
 
@@ -211,14 +201,6 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
         maxlogit_auc, maxlogit_fpr = calculate_metrics(maxlogit_scores, ood_mask, ind_mask)
 
         # Display and write the results
-        if len(miou_list) > 0:
-            mean_miou = np.mean(miou_list)
-            MIOU.append(mean_miou)
-            print(f'Mean IoU for {dataset_name}: {mean_miou*100.0}')
-            file.write(f'Mean IoU for {dataset_name}: {mean_miou*100.0}\n')
-        else:
-            print(f"No valid data for calculating mIoU for the dataset {dataset_name}.")
-
         if msp_auc is not None:
             print(f'MSP         AUPRC       {msp_auc*100.0}')
             print(f'MSP         FPR@TPR95   {msp_fpr*100.0}')
@@ -243,19 +225,4 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
     file.close()
 
 if __name__ == '__main__':
-    NUM_CLASSES = 20
-    PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
-    # Get all the directories in Validation_Dataset
-    final_directory = folder_up(os.path.dirname(os.path.abspath(sys.argv[0])), 1)
-    data_folder = "ValidationDatasets"
-    images_directory = "images"
-    labels_directory = "labels_masks"
-    print(final_directory)
-    print(PROJECT_ROOT)
-    data_directory = os.path.join(final_directory, data_folder)
-
-    directories = [entry.name for entry in os.scandir(data_directory) if entry.is_dir()]
-    # training_datasets = [os.path.join(data_directory, directory) for directory in directories[2:3]]
-    training_datasets = [os.path.join(data_directory, "fs_static")]
-    erfnet_perf_eval(training_datasets, NUM_CLASSES, PROJECT_ROOT)
+    erfnet_perf_eval(training_datasets, NUM_CLASSES, root_directory)
