@@ -37,14 +37,24 @@ dataset_directory = os.path.join(root_directory, datasets_directory)
 
 # The list of all the datasets in dataset_directory
 directories = [entry.name for entry in os.scandir(dataset_directory) if entry.is_dir()]
-# training_datasets = [os.path.join(dataset_directory, directory) for directory in directories]
+#training_datasets = [os.path.join(dataset_directory, directory) for directory in directories]
 training_datasets = [os.path.join(dataset_directory, "fs_static")]
+
+#def calculate_msp(logits):
+#    """
+#    Calculates Maximum Softmax Probability, using the logits. Exact definition as the one given by the teacher.
+#    """
+#    return 1.0 - np.max(logits, axis=0)
 
 def calculate_msp(logits):
     """
-    Calculates Maximum Softmax Probability, using the logits. Exact definition as the one given by the teacher.
+    Standard Maximum Softmax Probability (MSP) for OoD detection.
     """
-    return 1.0 - np.max(logits, axis=0)
+    # Subtract max for numerical stability
+    logits_shifted = logits - np.max(logits, axis=0, keepdims=True)
+    exp_logits = np.exp(logits_shifted)
+    softmax = exp_logits / np.sum(exp_logits, axis=0, keepdims=True)
+    return np.max(softmax, axis=0)
 
 def calculate_entropy(logits):
     """
@@ -92,16 +102,12 @@ def load_my_state_dict(model, state_dict):
     return model
 
 def erfnet_perf_eval(training_datasets, num_classes, project_root):
-    
-    MainPath = Path(__file__).resolve().parents[1] / "trained_models"
-    loadDir = str(MainPath)
-    loadWeights = "/erfnet_pretrained.pth"
 
     if not os.path.exists(r'.\eval\results.txt'):
         open(r'.\eval\results.txt', 'w').close()
     file = open(r'.\eval\results.txt', 'a')
     
-    weightspath = loadDir + loadWeights
+    weightspath = os.path.join(project_root, "trained_models", "erfnet_pretrained.pth")
 
     # defining which model to use
     model = ERFNet(NUM_CLASSES)
@@ -134,6 +140,8 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
 
             # Determine corresponding ground truth label path
             pathGT = path.replace(images_directory, labels_directory)
+
+            # changing the image extension because GT images are all in .png
             if image_ext == '.webp':
                 pathGT = pathGT.replace('.webp', '.png')
            
@@ -150,13 +158,11 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
                 result = model(image)
 
             # Obtain predicted class labels
-            predictions = torch.argmax(result, dim=1).squeeze().cpu().numpy()
-            mask = Image.open(pathGT)
-            mask = target_transform(mask)
+            #predictions = torch.argmax(result, dim=1).squeeze().cpu().numpy()
+            mask = target_transform(Image.open(pathGT))
             ood_gts = np.array(mask)
-
             logits = result.squeeze(0).data.cpu().numpy()
-
+            
             # calculate anomaly scores
             msp_result = calculate_msp(logits)
             entropy_result = calculate_entropy(logits)
@@ -191,7 +197,6 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
         maxlogit_scores = np.array(maxlogit_scores)
 
         ood_gts = np.array(ood_gts_list)
-
         ood_mask = (ood_gts == 1)
         ind_mask = (ood_gts == 0)
         
@@ -205,23 +210,22 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
             print(f'MSP         AUPRC       {msp_auc*100.0}')
             print(f'MSP         FPR@TPR95   {msp_fpr*100.0}')
             file.write(f'Dataset: {dataset_name}\n')
-            file.write(f'AUPRC score (MSP): {msp_auc*100.0}\n')
-            file.write(f'FPR@TPR95 (MSP): {msp_fpr*100.0}\n')
+            file.write(f'MSP         AUPRC       {msp_auc*100.0}\n')
+            file.write(f'MSP         FPR@TPR95   {msp_fpr*100.0}\n')
 
         if entropy_auc is not None:
             print(f'Entropy     AUPRC       {entropy_auc*100.0}')
             print(f'Entropy     FPR@TPR95   {entropy_fpr*100.0}')
-            file.write(f'AUPRC score (Entropy): {entropy_auc*100.0}\n')
-            file.write(f'FPR@TPR95 (Entropy): {entropy_fpr*100.0}\n')
+            file.write(f'Entropy     AUPRC       {entropy_auc*100.0}\n')
+            file.write(f'Entropy     FPR@TPR95   {entropy_fpr*100.0}\n')
 
         if maxlogit_auc is not None:
             print(f'MaxLogit    AUPRC       {maxlogit_auc*100.0}')
             print(f'MaxLogit    FPR@TPR95   {maxlogit_fpr*100.0}')
-            file.write(f'AUPRC score (MaxLogit): {maxlogit_auc*100.0}\n')
-            file.write(f'FPR@TPR95 (MaxLogit): {maxlogit_fpr*100.0}\n')
+            file.write(f'MaxLogit    AUPRC       {maxlogit_auc*100.0}\n')
+            file.write(f'MaxLogit    FPR@TPR95   {maxlogit_fpr*100.0}\n')
 
         file.write('\n')
-
     file.close()
 
 if __name__ == '__main__':

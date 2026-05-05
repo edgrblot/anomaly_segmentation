@@ -155,8 +155,6 @@ class LightningCLI(cli.LightningCLI):
 
         self.trainer.fit(model, **kwargs)
 
-# il faut modifier des trucs là dedans
-
 def cli_main():
     LightningCLI(
         LightningModule,
@@ -180,6 +178,4 @@ def cli_main():
 
 
 if __name__ == "__main__":
-    # probably not necessary but hey i'm just figuring things out
-    torch.cuda.empty_cache()
     cli_main()
