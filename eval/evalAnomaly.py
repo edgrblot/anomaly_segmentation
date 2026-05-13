@@ -46,22 +46,24 @@ training_datasets = [os.path.join(dataset_directory, directory) for directory in
 #    """
 #    return 1.0 - np.max(logits, axis=0)
 
-def calculate_msp(logits):
-    """
-    Standard Maximum Softmax Probability (MSP) for OoD detection.
-    """
+"""def calculate_msp(logits):
+    #Standard Maximum Softmax Probability (MSP) for OoD detection.
     # Subtract max for numerical stability
     logits_shifted = logits - np.max(logits, axis=0, keepdims=True)
     exp_logits = np.exp(logits_shifted)
     softmax = exp_logits / np.sum(exp_logits, axis=0, keepdims=True)
-    return np.max(softmax, axis=0)
+    return np.max(softmax, axis=0)"""
+
+def calculate_msp(logits):
+    softmax_output = np.exp(logits) / np.sum(np.exp(logits), axis=0, keepdims=True)
+    return 1.0 - np.max(softmax_output, axis=0)
 
 def calculate_entropy(logits):
     """
     Calculates the entropy from the logits. Definition established from the one defined in the SegmentMeIfYouCan project.
     """
     softmax_output = np.exp(logits) / np.sum(np.exp(logits), axis=0, keepdims=True)
-    log_probs = np.log(softmax_output)# + 1e-10)
+    log_probs = np.log(softmax_output + 1e-10)
     return np.sum(-softmax_output * log_probs, axis=0)
 
 def calculate_max_logit(logits):
@@ -121,6 +123,7 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
     for dataset_dir in training_datasets:
 
         dataset_name = os.path.basename(dataset_dir)
+        print(dataset_name)
         images_pattern = os.path.join(dataset_dir, images_directory, "*.*").replace('/', '\\')
 
         msp_scores = []
@@ -171,7 +174,7 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
             if "RoadAnomaly" in dataset_name:
                 ood_gts = np.where((ood_gts==2), 1, ood_gts)
 
-            elif "LostAndFound" in dataset_name:
+            elif "FS_LostFound_full" in dataset_name:
                 ood_gts = np.where((ood_gts==0), 255, ood_gts)
                 ood_gts = np.where((ood_gts==1), 0, ood_gts)
                 ood_gts = np.where((ood_gts>1)&(ood_gts<201), 1, ood_gts)
@@ -197,9 +200,11 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
         maxlogit_scores = np.array(maxlogit_scores)
 
         ood_gts = np.array(ood_gts_list)
-        ood_mask = (ood_gts == 1)
-        ind_mask = (ood_gts == 0)
-        
+        ignore_mask = (ood_gts == 255)
+        ood_mask = (ood_gts == 1) & ~ignore_mask
+        ind_mask = (ood_gts == 0) & ~ignore_mask
+
+
         # Calculate the metrics for each method
         msp_auc, msp_fpr = calculate_metrics(msp_scores, ood_mask, ind_mask)
         entropy_auc, entropy_fpr = calculate_metrics(entropy_scores, ood_mask, ind_mask)
