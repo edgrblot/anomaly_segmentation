@@ -37,8 +37,8 @@ dataset_directory = os.path.join(root_directory, datasets_directory)
 
 # The list of all the datasets in dataset_directory
 directories = [entry.name for entry in os.scandir(dataset_directory) if entry.is_dir()]
-#training_datasets = [os.path.join(dataset_directory, directory) for directory in directories]
-training_datasets = [os.path.join(dataset_directory, "fs_static")]
+training_datasets = [os.path.join(dataset_directory, directory) for directory in directories]
+#training_datasets = [os.path.join(dataset_directory, "fs_static")]
 
 #def calculate_msp(logits):
 #    """
