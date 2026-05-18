@@ -20,6 +20,14 @@ from iouEval import iouEval, getColorEntry
 
 NUM_CLASSES = 20
 
+CITYSCAPES_ID_TO_TRAINID = {
+    0: 19, 1: 19, 2: 19, 3: 19, 4: 19, 5: 19, 6: 19,
+    7: 0,  8: 1,  9: 19, 10: 19, 11: 2,  12: 3,  13: 4,
+    14: 19, 15: 19, 16: 19, 17: 5,  18: 19, 19: 6,  20: 7,
+    21: 8,  22: 9,  23: 10, 24: 11, 25: 12, 26: 13, 27: 14,
+    28: 15, 29: 19, 30: 19, 31: 16, 32: 17, 33: 18, -1: 19
+}
+
 # Get all the directories in ValidationDatasets
 root_directory = Path(__file__).resolve().parents[1]
 
@@ -40,6 +48,12 @@ def load_my_state_dict(model, state_dict):  #custom function to load model when 
             own_state[name].copy_(param)
     return model
 
+def remap_labels(labels_tensor):
+    remapped = torch.full_like(labels_tensor, 19)
+    for src, dst in CITYSCAPES_ID_TO_TRAINID.items():
+        remapped[labels_tensor == src] = dst
+    return remapped
+
 def main(project_root):
     
     model = ERFNet(NUM_CLASSES)
@@ -59,17 +73,20 @@ def main(project_root):
     iouEvalVal = iouEval(NUM_CLASSES)
 
     for step, (images, labels, filename, filenameGt) in enumerate(loader):
+        
         print(step)
 
         images = images.cuda()
-        labels = labels.cuda()
-
+        labels = remap_labels(labels).cuda()
+        
         inputs = Variable(images)
         with torch.no_grad():
             outputs = model(inputs)
 
         logits = outputs.max(1)[1].unsqueeze(1).data.cuda()
-        
+        # After computing logits, clamp labels to valid range
+        labels = labels.clamp(0, NUM_CLASSES - 1)  # clamp to [0, 19]
+
         iouEvalVal.addBatch(logits, labels)
 
     iouVal, iou_classes = iouEvalVal.getIoU()

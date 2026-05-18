@@ -174,11 +174,11 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
             if "RoadAnomaly" in dataset_name:
                 ood_gts = np.where((ood_gts==2), 1, ood_gts)
 
-            elif "FS_LostFound_full" in dataset_name:
-                ood_gts = np.where((ood_gts==0), 255, ood_gts)
-                ood_gts = np.where((ood_gts==1), 0, ood_gts)
-                ood_gts = np.where((ood_gts>1)&(ood_gts<201), 1, ood_gts)
-
+#            elif "FS_LostFound_full" in dataset_name:
+#                ood_gts = np.where((ood_gts==0), 255, ood_gts)
+#                ood_gts = np.where((ood_gts==1), 0, ood_gts)
+#                ood_gts = np.where((ood_gts>1)&(ood_gts<201), 1, ood_gts)
+#
             if 1 not in np.unique(ood_gts):
                 print(f"No anomaly in {pathGT[-6:]}")
                 continue

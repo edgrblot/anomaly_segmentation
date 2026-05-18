@@ -162,12 +162,12 @@ class FSLostFoundDataset(_AnomalyDataset):
     """
     FOLDER = "FS_LostFound_full"
 
-    def _remap(self, raw):
-        out = np.full_like(raw, IGNORE_INDEX, dtype=np.int64)
-        out[raw == 1]                        = 0   # InD
-        out[(raw >= 2) & (raw <= 200)]       = 1   # OoD
-        # raw == 0 stays 255 (ignore)
-        return out
+    #def _remap(self, raw):
+    #    out = np.full_like(raw, IGNORE_INDEX, dtype=np.int64)
+    #    out[raw == 1]                        = 0   # InD
+    #    out[(raw >= 2) & (raw <= 200)]       = 1   # OoD
+    #    # raw == 0 stays 255 (ignore)
+    #    return out
 
 
 # ──────────────────────────────────────────────────────────────────────────────
