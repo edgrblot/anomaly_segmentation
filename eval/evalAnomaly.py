@@ -55,14 +55,15 @@ training_datasets = [os.path.join(dataset_directory, directory) for directory in
     return np.max(softmax, axis=0)"""
 
 def calculate_msp(logits):
-    softmax_output = np.exp(logits) / np.sum(np.exp(logits), axis=0, keepdims=True)
-    return 1.0 - np.max(softmax_output, axis=0)
+    logits_shifted = logits - np.max(logits, axis=0, keepdims=True)
+    exp = np.exp(logits_shifted)
+    softmax = exp / np.sum(exp, axis=0, keepdims=True)
+    return 1.0 - np.max(softmax, axis=0)
 
 def calculate_entropy(logits):
-    """
-    Calculates the entropy from the logits. Definition established from the one defined in the SegmentMeIfYouCan project.
-    """
-    softmax_output = np.exp(logits) / np.sum(np.exp(logits), axis=0, keepdims=True)
+    logits_shifted = logits - np.max(logits, axis=0, keepdims=True)
+    exp = np.exp(logits_shifted)
+    softmax_output = exp / np.sum(exp, axis=0, keepdims=True)
     log_probs = np.log(softmax_output + 1e-10)
     return np.sum(-softmax_output * log_probs, axis=0)
 
