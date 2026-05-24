@@ -2,6 +2,7 @@ import os
 import glob
 import torch
 import random
+import pickle
 import numpy as np
 
 from PIL import Image
@@ -27,6 +28,7 @@ target_transform = Compose([Resize((512, 1024), Image.NEAREST)])
 
 # Defining the number of classes of the trained model
 NUM_CLASSES = 20
+TEMPERATURES = [1., 2.3, 2.4, 16,17,18,19,20,21]
 
 # Get all the directories in ValidationDatasets
 root_directory = Path(__file__).resolve().parents[1]
@@ -39,20 +41,6 @@ dataset_directory = os.path.join(root_directory, datasets_directory)
 directories = [entry.name for entry in os.scandir(dataset_directory) if entry.is_dir()]
 training_datasets = [os.path.join(dataset_directory, directory) for directory in directories]
 #training_datasets = [os.path.join(dataset_directory, "fs_static")]
-
-#def calculate_msp(logits):
-#    """
-#    Calculates Maximum Softmax Probability, using the logits. Exact definition as the one given by the teacher.
-#    """
-#    return 1.0 - np.max(logits, axis=0)
-
-"""def calculate_msp(logits):
-    #Standard Maximum Softmax Probability (MSP) for OoD detection.
-    # Subtract max for numerical stability
-    logits_shifted = logits - np.max(logits, axis=0, keepdims=True)
-    exp_logits = np.exp(logits_shifted)
-    softmax = exp_logits / np.sum(exp_logits, axis=0, keepdims=True)
-    return np.max(softmax, axis=0)"""
 
 def calculate_msp(logits):
     logits_shifted = logits - np.max(logits, axis=0, keepdims=True)
@@ -91,6 +79,14 @@ def calculate_metrics(scores, ood_mask, ind_mask):
 
     return prc_auc, fpr
 
+def calculate_msp_temperature(logits, temperature=1.0):
+    """MSP with temperature scaling — divide logits by T before softmax."""
+    scaled_logits = logits / temperature
+    logits_shifted = scaled_logits - np.max(scaled_logits, axis=0, keepdims=True)
+    exp = np.exp(logits_shifted)
+    softmax = exp / np.sum(exp, axis=0, keepdims=True)
+    return 1.0 - np.max(softmax, axis=0)
+
 def load_my_state_dict(model, state_dict):
     own_state = model.state_dict()
     for name, param in state_dict.items():
@@ -122,8 +118,9 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
 
     # Loop through each dataset for evaluation
     for dataset_dir in training_datasets:
-
         dataset_name = os.path.basename(dataset_dir)
+        if dataset_name == "cityscapes":  # skip cityscapes
+            continue
         print(dataset_name)
         images_pattern = os.path.join(dataset_dir, images_directory, "*.*").replace('/', '\\')
 
@@ -131,6 +128,7 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
         entropy_scores = []
         maxlogit_scores = []
         ood_gts_list = []
+        logits_list = []
         
         # list of all the images in the directory
         image_paths = glob.glob(os.path.abspath(images_pattern))
@@ -166,7 +164,7 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
             mask = target_transform(Image.open(pathGT))
             ood_gts = np.array(mask)
             logits = result.squeeze(0).data.cpu().numpy()
-            
+
             # calculate anomaly scores
             msp_result = calculate_msp(logits)
             entropy_result = calculate_entropy(logits)
@@ -189,9 +187,15 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
                 msp_scores.append(msp_result)
                 entropy_scores.append(entropy_result)
                 maxlogit_scores.append(maxlogit_result)
+                logits_list.append(logits)
 
             torch.cuda.empty_cache()
 
+        save_dir = os.path.join(project_root, "saved_logits_erfnet")
+        os.makedirs(save_dir, exist_ok=True)
+        with open(os.path.join(save_dir, f"{dataset_name}_logits.pkl"), "wb") as f:
+            pickle.dump({"logits": logits_list, "gts": ood_gts_list}, f)
+        
         if len(ood_gts_list) == 0 or len(msp_scores) == 0:
             print(f"No data collected for the dataset {dataset_name}. Check the paths of images and labels.")
             continue
@@ -234,5 +238,42 @@ def erfnet_perf_eval(training_datasets, num_classes, project_root):
         file.write('\n')
     file.close()
 
+def erfnet_temperature_eval(project_root):
+    save_dir = os.path.join(project_root, "saved_logits_erfnet")
+    
+    if not os.path.exists(r'.\eval\results_temperature.txt'):
+        open(r'.\eval\results_temperature.txt', 'w').close()
+    file = open(r'.\eval\results_temperature.txt', 'a')
+
+    for pkl_file in sorted(os.listdir(save_dir)):
+        if not pkl_file.endswith("_logits.pkl"):
+            continue
+
+        dataset_name = pkl_file.replace("_logits.pkl", "")
+        print(f"\n=== {dataset_name} ===")
+        file.write(f"\nDataset: {dataset_name}\n")
+
+        with open(os.path.join(save_dir, pkl_file), "rb") as f:
+            data = pickle.load(f)
+
+        logits_list = data["logits"]
+        ood_gts_list = data["gts"]
+
+        ood_gts = np.array(ood_gts_list)
+        ignore_mask = (ood_gts == 255)
+        ood_mask    = (ood_gts == 1) & ~ignore_mask
+        ind_mask    = (ood_gts == 0) & ~ignore_mask
+
+        print(f"  {'Method':<20} {'AUPRC':>10}  {'FPR@95':>10}")
+        for T in TEMPERATURES:
+            scores = np.array([calculate_msp_temperature(l, T) for l in logits_list])
+            auc, fpr = calculate_metrics(scores, ood_mask, ind_mask)
+            label = f"MSP (t={T})"
+            print(f"  {label:<20} {auc*100:>9.2f}%  {fpr*100:>9.2f}%")
+            file.write(f"{label}    AUPRC {auc*100:.2f}    FPR@TPR95 {fpr*100:.2f}\n")
+
+    file.close()
+
 if __name__ == '__main__':
-    erfnet_perf_eval(training_datasets, NUM_CLASSES, root_directory)
+    #erfnet_perf_eval(training_datasets, NUM_CLASSES, root_directory)
+    erfnet_temperature_eval(root_directory)

@@ -1,5 +1,5 @@
 /eomt/eomt_cityscapes.bin
-/eomt/data
-/eval/data
+/eomt/saved_logits
 /ValidationDatasets
 /wandb
+/saved_logits_erfnet
