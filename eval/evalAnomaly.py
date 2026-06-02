@@ -28,7 +28,9 @@ target_transform = Compose([Resize((512, 1024), Image.NEAREST)])
 
 # Defining the number of classes of the trained model
 NUM_CLASSES = 20
-TEMPERATURES = [1., 2.3, 2.4, 16,17,18,19,20,21]
+
+# Temperatures to run temperature scaling on
+TEMPERATURES = [0.5, 0.75, 1.1]
 
 # Get all the directories in ValidationDatasets
 root_directory = Path(__file__).resolve().parents[1]
@@ -80,7 +82,7 @@ def calculate_metrics(scores, ood_mask, ind_mask):
     return prc_auc, fpr
 
 def calculate_msp_temperature(logits, temperature=1.0):
-    """MSP with temperature scaling — divide logits by T before softmax."""
+    """MSP with temperature scaling, divides logits by t before softmax."""
     scaled_logits = logits / temperature
     logits_shifted = scaled_logits - np.max(scaled_logits, axis=0, keepdims=True)
     exp = np.exp(logits_shifted)

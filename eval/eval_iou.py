@@ -20,6 +20,7 @@ from iouEval import iouEval, getColorEntry
 
 NUM_CLASSES = 20
 
+# prediction class conversion
 CITYSCAPES_ID_TO_TRAINID = {
     0: 19, 1: 19, 2: 19, 3: 19, 4: 19, 5: 19, 6: 19,
     7: 0,  8: 1,  9: 19, 10: 19, 11: 2,  12: 3,  13: 4,
@@ -74,7 +75,7 @@ def main(project_root):
 
     for step, (images, labels, filename, filenameGt) in enumerate(loader):
         
-        print(step)
+        #print(step)
 
         images = images.cuda()
         labels = remap_labels(labels).cuda()
@@ -84,8 +85,8 @@ def main(project_root):
             outputs = model(inputs)
 
         logits = outputs.max(1)[1].unsqueeze(1).data.cuda()
-        # After computing logits, clamp labels to valid range
-        labels = labels.clamp(0, NUM_CLASSES - 1)  # clamp to [0, 19]
+        # After computing logits, clamp labels to valid range ([0, 19])
+        labels = labels.clamp(0, NUM_CLASSES - 1)
 
         iouEvalVal.addBatch(logits, labels)
 

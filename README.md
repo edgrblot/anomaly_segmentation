@@ -1,4 +1,5 @@
 # Mask Architecture Anomaly Segmentation for Road Scenes
+
 This is the repository of the work of Otmane Sarout (S350828) and Edgard Bouillot (S350869).
 A comparison between mask and pixel based methods for road anomaly segmentation (using ERFNet and EoMT models, trained on the cityscapes dataset).
 ---
